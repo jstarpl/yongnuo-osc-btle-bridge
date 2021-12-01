@@ -3,8 +3,8 @@ use rosc::decoder::decode as osc_decode;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
 use std::net::{SocketAddr, UdpSocket};
 use std::str::FromStr;
-use std::sync::Condvar;
-use std::sync::{Mutex, RwLock};
+use std::sync::Mutex;
+use std::sync::{Arc, Condvar};
 use std::thread;
 use std::time::Duration;
 
