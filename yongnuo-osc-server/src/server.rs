@@ -68,18 +68,20 @@ fn send_rgb_state(state: &LightState, light: &Peripheral, cmd_char: &Characteris
     let green = state.rgb.green.get();
     let blue = state.rgb.blue.get();
     println!("Sending RGB state: {0}, {1}, {2}", red, green, blue);
-    light
-        .command(cmd_char, &[0xae, 0xa1, red, green, blue, 0x56])
-        .unwrap();
+    let result = light.command(cmd_char, &[0xae, 0xa1, red, green, blue, 0x56]);
+    if result.is_err() {
+        println!("Could not send RGB state: {:#?}", result)
+    }
 }
 
 fn send_white_state(state: &LightState, light: &Peripheral, cmd_char: &Characteristic) {
     let cool = state.white.cool.get();
     let warm = state.white.warm.get();
     println!("Sending White state: {0}, {1}", cool, warm);
-    light
-        .command(cmd_char, &[0xae, 0xaa, 1, cool, warm, 0x56])
-        .unwrap();
+    let result = light.command(cmd_char, &[0xae, 0xaa, 1, cool, warm, 0x56]);
+    if result.is_err() {
+        println!("Could not send RGB state: {:#?}", result)
+    }
 }
 
 fn handle_message(message: OscMessage, state: &LightState) -> StateModification {
@@ -95,12 +97,11 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
 
     let value = (message.args).into_iter().nth(0);
 
-    let basic_value = (value.unwrap().float().unwrap_or(0.0) * 99.0)
-        .to_u8()
-        .unwrap_or(0);
-
     match message.addr.as_ref() {
         "/red" => {
+            let basic_value = (value.unwrap().float().unwrap_or(0.0) * 255.0)
+                .to_u8()
+                .unwrap_or(0);
             state.rgb.red.set(basic_value);
             return StateModification {
                 rgb: true,
@@ -108,6 +109,9 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
             };
         }
         "/green" => {
+            let basic_value = (value.unwrap().float().unwrap_or(0.0) * 255.0)
+                .to_u8()
+                .unwrap_or(0);
             state.rgb.green.set(basic_value);
             return StateModification {
                 rgb: true,
@@ -115,6 +119,9 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
             };
         }
         "/blue" => {
+            let basic_value = (value.unwrap().float().unwrap_or(0.0) * 255.0)
+                .to_u8()
+                .unwrap_or(0);
             state.rgb.blue.set(basic_value);
             return StateModification {
                 rgb: true,
@@ -122,6 +129,9 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
             };
         }
         "/warm" => {
+            let basic_value = (value.unwrap().float().unwrap_or(0.0) * 99.0)
+                .to_u8()
+                .unwrap_or(0);
             state.white.warm.set(basic_value);
             return StateModification {
                 rgb: false,
@@ -129,6 +139,9 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
             };
         }
         "/cool" => {
+            let basic_value = (value.unwrap().float().unwrap_or(0.0) * 99.0)
+                .to_u8()
+                .unwrap_or(0);
             state.white.cool.set(basic_value);
             return StateModification {
                 rgb: false,
@@ -173,9 +186,9 @@ fn handle_packet(packet: OscPacket, state: &LightState) -> StateModification {
 pub fn serve(port: u16, mac: &str) {
     let socket = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], port)))
         .ok()
-        .unwrap();
+        .expect("Can't open server socket");
 
-    let target_address = BDAddr::from_str(mac).ok().unwrap();
+    let target_address = BDAddr::from_str(mac).ok().expect("Target address invalid");
 
     print!("Connecting to device {0}... ", target_address);
 
@@ -187,7 +200,9 @@ pub fn serve(port: u16, mac: &str) {
     let central = get_central(&manager);
 
     // start scanning for devices
-    central.start_scan().unwrap();
+    central
+        .start_scan()
+        .expect("Can't start scanning for the device");
     // instead of waiting, you can use central.on_event to be notified of
     // new devices
     thread::sleep(Duration::from_secs(5));
@@ -197,10 +212,10 @@ pub fn serve(port: u16, mac: &str) {
         .peripherals()
         .into_iter()
         .find(|p| p.properties().address.eq(&target_address))
-        .unwrap();
+        .expect("Could not find devices with the specified address");
 
     // connect to the device
-    light.connect().ok().unwrap();
+    light.connect().ok().expect("Could not connect to device");
 
     let light_state: LightState = LightState {
         rgb: RGBState {
@@ -216,8 +231,18 @@ pub fn serve(port: u16, mac: &str) {
 
     let send_char_uuid = UUID::from_str("f0:00:aa:61:04:51:40:00:b0:00:00:00:00:00:00:00").unwrap();
     // find the characteristic we want
-    let chars = light.discover_characteristics().ok().unwrap();
-    let cmd_char = chars.iter().find(|c| c.uuid == send_char_uuid).unwrap();
+    let chars = light
+        .discover_characteristics()
+        .ok()
+        .expect("Could not discover characteristics");
+    let cmd_char = chars
+        .iter()
+        .find(|c| c.uuid == send_char_uuid)
+        .expect("Could not find matching command characteristic");
+
+    light
+        .command(cmd_char, &[0xae, 0x33, 0x00, 0x00, 0x00, 0x56])
+        .expect("Couldn't send initialize message");
 
     println!("Connected.");
 
