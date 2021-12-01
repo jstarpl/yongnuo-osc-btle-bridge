@@ -1,11 +1,10 @@
 use num_traits::ToPrimitive;
 use rosc::decoder::decode as osc_decode;
 use rosc::{OscBundle, OscMessage, OscPacket, OscType};
-use std::cell::Cell;
 use std::net::{SocketAddr, UdpSocket};
 use std::str::FromStr;
-use std::sync::{mpsc, Condvar};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Condvar;
+use std::sync::{Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -13,9 +12,9 @@ use btleplug::api::{BDAddr, Central, Characteristic, Peripheral as ApiPeripheral
 #[cfg(target_os = "linux")]
 use btleplug::bluez::{adapter::ConnectedAdapter, manager::Manager};
 #[cfg(target_os = "macos")]
-use btleplug::corebluetooth::{adapter::Adapter, manager::Manager, peripheral::Peripheral};
+use btleplug::corebluetooth::{adapter::Adapter, manager::Manager};
 #[cfg(target_os = "windows")]
-use btleplug::winrtble::{adapter::Adapter, manager::Manager, peripheral::Peripheral};
+use btleplug::winrtble::{adapter::Adapter, manager::Manager};
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn get_central(manager: &Manager) -> Adapter {
@@ -92,15 +91,15 @@ fn send_white_state(state: &LightState, light: &impl ApiPeripheral, cmd_char: &C
 }
 
 fn handle_message(message: OscMessage, state: &mut LightState) -> StateModification {
-    println!(
-        "{}: {}",
-        message.addr,
-        (&message.args)
-            .into_iter()
-            .map(|v| v.to_string())
-            .collect::<Vec<String>>()
-            .join(" ")
-    );
+    // println!(
+    //     "{}: {}",
+    //     message.addr,
+    //     (&message.args)
+    //         .into_iter()
+    //         .map(|v| v.to_string())
+    //         .collect::<Vec<String>>()
+    //         .join(" ")
+    // );
 
     let value = (message.args).into_iter().nth(0);
 
