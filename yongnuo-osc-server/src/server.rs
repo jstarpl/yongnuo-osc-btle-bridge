@@ -262,6 +262,7 @@ pub fn serve(port: u16, mac: &str) {
                 let osc_packet = osc_decode(&buf);
                 if let Err(err) = osc_packet {
                     // log
+                    println!("Broken OSC message received: {:#?}", err);
                     continue;
                 }
 
