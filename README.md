@@ -11,3 +11,7 @@ After installing [Rust tools](https://www.rust-lang.org/) do:
 ```
 cargo build
 ```
+
+Acknowledgements
+---
+https://github.com/kenkeiter/lantern
