@@ -1,6 +1,6 @@
 // use rosc::decoder::decode as osc_decode;
 // use std::net::UdpSocket;
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ArgMatches, SubCommand};
 use std::process::exit;
 mod discover;
 mod server;
@@ -8,8 +8,54 @@ mod server;
 const DEFAULT_TIMEOUT: &str = "10";
 const DEFAULT_PORT: &str = "8000";
 
+fn discover(matches: &ArgMatches) {
+    let timeout = matches
+        .value_of("timeout")
+        .unwrap_or_default()
+        .parse()
+        .ok()
+        .unwrap_or_default();
+    println!("Discovering available lights... {0}s", timeout);
+
+    let devices: Vec<discover::DeviceInfo> = discover::discover_devices(timeout);
+    let devices: Vec<String> = devices
+        .into_iter()
+        .map(|d| {
+            format!(
+                "{1} ({0})",
+                d.name.unwrap_or("Unknown".to_string()),
+                d.address
+            )
+        })
+        .collect();
+    println!("\nFound:");
+    println!("{}", devices.join("\n"));
+    exit(exitcode::OK);
+}
+
+fn connect(matches: &ArgMatches) {
+    let mac_address = matches.value_of("mac").unwrap_or_default();
+    let port: u16 = matches
+        .value_of("port")
+        .unwrap_or_default()
+        .parse()
+        .ok()
+        .unwrap_or_default();
+
+    println!("OSC server on port {0}.", port);
+
+    server::serve(port, mac_address);
+
+    exit(exitcode::OK)
+}
+
+fn help(matches: &ArgMatches) {
+    println!("{}", matches.usage());
+    exit(exitcode::USAGE);
+}
+
 fn main() {
-    let matches = App::new("Yongnuo BTLE OSC Server")
+    let app_m = App::new("Yongnuo BTLE OSC Server")
         .version("0.0.1")
         .author("Jan Starzak <jan.starzak@gmail.com>")
         .about("Connect to a Yongnuo LED light over Bluetooth LE and control it using OSC.")
@@ -45,46 +91,9 @@ fn main() {
         )
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("discover") {
-        let timeout = matches
-            .value_of("timeout")
-            .unwrap_or_default()
-            .parse()
-            .ok()
-            .unwrap_or_default();
-        println!("Discovering available lights... {0}s", timeout);
-
-        let devices: Vec<discover::DeviceInfo> = discover::discover_devices(timeout);
-        let devices: Vec<String> = devices
-            .into_iter()
-            .map(|d| {
-                format!(
-                    "{1} ({0})",
-                    d.name.unwrap_or("Unknown".to_string()),
-                    d.address
-                )
-            })
-            .collect();
-        println!("\nFound:");
-        println!("{}", devices.join("\n"));
-        exit(exitcode::OK);
-    } else if let Some(matches) = matches.subcommand_matches("connect") {
-        let mac_address = matches.value_of("mac").unwrap_or_default();
-        let port: u16 = matches
-            .value_of("port")
-            .unwrap_or_default()
-            .parse()
-            .ok()
-            .unwrap_or_default();
-
-        println!("OSC server on port {0}.", port);
-
-        server::serve(port, mac_address);
-
-        exit(exitcode::OK)
+    match app_m.subcommand() {
+        ("discover", Some(sub_m)) => discover(&sub_m),
+        ("connect", Some(sub_m)) => connect(&sub_m),
+        _ => help(&app_m),
     }
-
-    println!("{}", matches.usage());
-
-    std::process::exit(exitcode::USAGE);
 }
