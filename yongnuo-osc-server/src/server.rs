@@ -58,10 +58,7 @@ struct LightState {
     white: WhiteState,
 }
 
-struct StateModification {
-    rgb: bool,
-    white: bool,
-}
+struct StateModification(bool, bool);
 
 fn send_rgb_state(state: &LightState, light: &Peripheral, cmd_char: &Characteristic) {
     let red = state.rgb.red.get();
@@ -103,57 +100,39 @@ fn handle_message(message: OscMessage, state: &LightState) -> StateModification 
                 .to_u8()
                 .unwrap_or(0);
             state.rgb.red.set(basic_value);
-            return StateModification {
-                rgb: true,
-                white: false,
-            };
+            return StateModification(true, false);
         }
         "/green" => {
             let basic_value = (value.unwrap().float().unwrap_or(0.0) * 255.0)
                 .to_u8()
                 .unwrap_or(0);
             state.rgb.green.set(basic_value);
-            return StateModification {
-                rgb: true,
-                white: false,
-            };
+            return StateModification(true, false);
         }
         "/blue" => {
             let basic_value = (value.unwrap().float().unwrap_or(0.0) * 255.0)
                 .to_u8()
                 .unwrap_or(0);
             state.rgb.blue.set(basic_value);
-            return StateModification {
-                rgb: true,
-                white: false,
-            };
+            return StateModification(true, false);
         }
         "/warm" => {
             let basic_value = (value.unwrap().float().unwrap_or(0.0) * 99.0)
                 .to_u8()
                 .unwrap_or(0);
             state.white.warm.set(basic_value);
-            return StateModification {
-                rgb: false,
-                white: true,
-            };
+            return StateModification(false, true);
         }
         "/cool" => {
             let basic_value = (value.unwrap().float().unwrap_or(0.0) * 99.0)
                 .to_u8()
                 .unwrap_or(0);
             state.white.cool.set(basic_value);
-            return StateModification {
-                rgb: false,
-                white: true,
-            };
+            return StateModification(false, true);
         }
         _ => {
             println!("Unsupported OSC address: {0}", message.addr);
-            return StateModification {
-                rgb: false,
-                white: false,
-            };
+            return StateModification(false, false);
         }
     }
 }
@@ -165,13 +144,9 @@ fn handle_bundle(bundle: OscBundle, state: &LightState) -> StateModification {
         .map(|p| handle_packet(p, state))
         .into_iter()
         .fold(
-            StateModification {
-                rgb: false,
-                white: false,
-            },
-            |acc: StateModification, item: StateModification| StateModification {
-                rgb: acc.rgb | item.rgb,
-                white: acc.white | item.white,
+            StateModification(false, false),
+            |acc: StateModification, item: StateModification| {
+                StateModification(acc.0 | item.0, acc.1 | item.1)
             },
         )
 }
@@ -252,10 +227,7 @@ pub fn serve(port: u16, mac: &str) {
 
     loop {
         let mut buf = [0; 4098];
-        let mut bundled_modification: StateModification = StateModification {
-            rgb: false,
-            white: false,
-        };
+        let mut bundled_modification: StateModification = StateModification(false, false);
 
         loop {
             let result = socket.recv_from(&mut buf);
@@ -264,14 +236,16 @@ pub fn serve(port: u16, mac: &str) {
             }
             let osc_packet = osc_decode(&buf).ok().unwrap();
             let this_modification = handle_packet(osc_packet, &light_state);
-            bundled_modification.rgb = bundled_modification.rgb | this_modification.rgb;
-            bundled_modification.white = bundled_modification.white | this_modification.white;
+            bundled_modification = StateModification(
+                bundled_modification.0 | this_modification.0,
+                bundled_modification.1 | this_modification.1,
+            );
         }
 
-        if bundled_modification.rgb {
+        if bundled_modification.0 == true {
             send_rgb_state(&light_state, &light, cmd_char)
         }
-        if bundled_modification.white {
+        if bundled_modification.1 == true {
             send_white_state(&light_state, &light, cmd_char)
         }
     }
