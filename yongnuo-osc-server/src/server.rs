@@ -63,6 +63,7 @@ struct LightState {
     white: WhiteState,
 }
 
+#[derive(Clone, PartialEq)]
 enum StateModification {
     RGB,
     White,
@@ -177,95 +178,105 @@ pub fn serve(port: u16, mac: &str) {
     ));
     let light_state_channel_recv = Arc::clone(&light_state_channel_send);
 
-    thread::spawn(move || {
-        let manager = Manager::new().unwrap();
+    let threads = (
+        thread::spawn(move || {
+            let manager = Manager::new().unwrap();
 
-        // get the first bluetooth adapter
-        //
-        // connect to the adapter
-        let central = get_central(&manager);
+            // get the first bluetooth adapter
+            //
+            // connect to the adapter
+            let central = get_central(&manager);
 
-        // start scanning for devices
-        central
-            .start_scan()
-            .expect("Can't start scanning for the device");
-        // instead of waiting, you can use central.on_event to be notified of
-        // new devices
-        thread::sleep(Duration::from_secs(5));
+            // start scanning for devices
+            central
+                .start_scan()
+                .expect("Can't start scanning for the device");
+            // instead of waiting, you can use central.on_event to be notified of
+            // new devices
+            thread::sleep(Duration::from_secs(5));
 
-        // find the device we're interested in
-        let light = central
-            .peripherals()
-            .into_iter()
-            .find(|p| p.properties().address.eq(&target_address))
-            .expect("Could not find devices with the specified address");
+            // find the device we're interested in
+            let light = central
+                .peripherals()
+                .into_iter()
+                .find(|p| p.properties().address.eq(&target_address))
+                .expect("Could not find devices with the specified address");
 
-        // connect to the device
-        light.connect().ok().expect("Could not connect to device");
+            // connect to the device
+            light.connect().ok().expect("Could not connect to device");
 
-        let send_char_uuid =
-            UUID::from_str("f0:00:aa:61:04:51:40:00:b0:00:00:00:00:00:00:00").unwrap();
-        // find the characteristic we want
-        let chars = light
-            .discover_characteristics()
-            .ok()
-            .expect("Could not discover characteristics");
-        let cmd_char = chars
-            .iter()
-            .find(|c| c.uuid == send_char_uuid)
-            .expect("Could not find matching command characteristic");
+            let send_char_uuid =
+                UUID::from_str("f0:00:aa:61:04:51:40:00:b0:00:00:00:00:00:00:00").unwrap();
+            // find the characteristic we want
+            let chars = light
+                .discover_characteristics()
+                .ok()
+                .expect("Could not discover characteristics");
+            let cmd_char = chars
+                .iter()
+                .find(|c| c.uuid == send_char_uuid)
+                .expect("Could not find matching command characteristic");
 
-        light
-            .command(cmd_char, &[0xae, 0x33, 0x00, 0x00, 0x00, 0x56])
-            .expect("Couldn't send initialize message");
+            light
+                .command(cmd_char, &[0xae, 0x33, 0x00, 0x00, 0x00, 0x56])
+                .expect("Couldn't send initialize message");
 
-        println!("Connected.");
+            println!("Connected.");
 
-        let (lock, recv) = &*light_state_channel_recv;
-        let mut msg = lock.lock().unwrap();
+            loop {
+                let msg = {
+                    let (lock, recv) = &*light_state_channel_recv;
+                    let mut msg = lock.lock().unwrap();
+                    if msg.1 == StateModification::None {
+                        msg = recv.wait(msg).unwrap();
+                    }
+                    let res = (*msg).clone();
+                    msg.1 = StateModification::None;
+                    res
+                };
 
-        loop {
-            msg = recv.wait(msg).unwrap();
+                let light_state = &msg.0;
+                let bundled_modification = &msg.1;
 
-            let light_state = &msg.0;
-            let bundled_modification = &msg.1;
-
-            match bundled_modification {
-                StateModification::RGB => send_rgb_state(&light_state, &light, cmd_char),
-                StateModification::White => send_white_state(&light_state, &light, cmd_char),
-                StateModification::None => {}
+                match bundled_modification {
+                    StateModification::RGB => send_rgb_state(&light_state, &light, cmd_char),
+                    StateModification::White => send_white_state(&light_state, &light, cmd_char),
+                    StateModification::None => {}
+                }
             }
-        }
-    });
+        }),
+        thread::spawn(move || {
+            socket
+                .set_read_timeout(Some(Duration::new(0, 1)))
+                .expect("Could not set read timeout");
 
-    thread::spawn(move || {
-        socket
-            .set_read_timeout(Some(Duration::new(0, 1)))
-            .expect("Could not set read timeout");
+            let mut light_state = LightState::default();
 
-        let mut light_state = LightState::default();
+            loop {
+                let mut buf = [0; 4098];
 
-        loop {
-            let mut buf = [0; 4098];
+                let result = socket.recv_from(&mut buf);
+                if result.is_err() {
+                    continue;
+                }
 
-            let result = socket.recv_from(&mut buf);
-            if result.is_err() {
-                break;
+                let osc_packet = osc_decode(&buf);
+                if let Err(err) = osc_packet {
+                    // log
+                    continue;
+                }
+
+                let osc_packet = osc_packet.unwrap();
+                let this_modification = handle_packet(osc_packet, &mut light_state);
+
+                let (lock, send) = &*light_state_channel_send;
+                let mut light_state_send = lock.lock().unwrap();
+                *light_state_send = (light_state.clone(), this_modification);
+                send.notify_one();
             }
+        }),
+    );
 
-            let osc_packet = osc_decode(&buf);
-            if let Err(err) = osc_packet {
-                // log
-                continue;
-            }
-
-            let osc_packet = osc_packet.unwrap();
-            let this_modification = handle_packet(osc_packet, &mut light_state);
-
-            let (lock, send) = &*light_state_channel_send;
-            let mut light_state_send = lock.lock().unwrap();
-            *light_state_send = (light_state.clone(), this_modification);
-            send.notify_one();
-        }
-    });
+    threads.0.join().unwrap();
+    threads.1.join().unwrap();
 }
