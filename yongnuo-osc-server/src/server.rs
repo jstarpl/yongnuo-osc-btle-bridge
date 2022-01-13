@@ -69,6 +69,17 @@ enum StateModification {
     None,
 }
 
+fn handle_error(error: &btleplug::Error) {
+    match error {
+        btleplug::Error::NotConnected => std::process::exit(2),
+        btleplug::Error::DeviceNotFound => std::process::exit(3),
+        btleplug::Error::NotSupported(_) => std::process::exit(4),
+        btleplug::Error::PermissionDenied => std::process::exit(5),
+        btleplug::Error::TimedOut(_) => std::process::exit(6),
+        btleplug::Error::Other(_) => std::process::exit(255),
+    }
+}
+
 fn send_rgb_state(state: &LightState, light: &impl ApiPeripheral, cmd_char: &Characteristic) {
     let red = state.rgb.red;
     let green = state.rgb.green;
@@ -76,7 +87,8 @@ fn send_rgb_state(state: &LightState, light: &impl ApiPeripheral, cmd_char: &Cha
     println!("Sending RGB state: {0}, {1}, {2}", red, green, blue);
     let result = light.command(cmd_char, &[0xae, 0xa1, red, green, blue, 0x56]);
     if result.is_err() {
-        println!("Could not send RGB state: {:#?}", result)
+        println!("Could not send RGB state: {:#?}", result);
+        handle_error(&result.unwrap_err())
     }
 }
 
@@ -86,21 +98,12 @@ fn send_white_state(state: &LightState, light: &impl ApiPeripheral, cmd_char: &C
     println!("Sending White state: {0}, {1}", cool, warm);
     let result = light.command(cmd_char, &[0xae, 0xaa, 1, cool, warm, 0x56]);
     if result.is_err() {
-        println!("Could not send RGB state: {:#?}", result)
+        println!("Could not send RGB state: {:#?}", result);
+        handle_error(&result.unwrap_err())
     }
 }
 
 fn handle_message(message: OscMessage, state: &mut LightState) -> StateModification {
-    // println!(
-    //     "{}: {}",
-    //     message.addr,
-    //     (&message.args)
-    //         .into_iter()
-    //         .map(|v| v.to_string())
-    //         .collect::<Vec<String>>()
-    //         .join(" ")
-    // );
-
     let value = (message.args).into_iter().nth(0);
 
     match message.addr.as_ref() {
